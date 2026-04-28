@@ -37,10 +37,12 @@ jobs:
         docker build -t $IMAGE_NAME:latest .
         docker build -t $IMAGE_NAME:${{ github.sha }} .
 
-    - name: Test Docker container
+    - name: Test Docker container and store logs
       run: |
         echo "🚀 Testování Docker kontejneru..."
-        docker run --rm $IMAGE_NAME:latest
+        mkdir /tmp/mylogs
+        docker run --rm $IMAGE_NAME:latest > /tmp/mylogs/log_run.txt
+        docker run --rm $IMAGE_NAME:latest bash -c "python ./test_calculator.py -v" > /tmp/mylogs/log_test.txt 2>&1
 
     - name: List Docker images
       run: |
@@ -51,4 +53,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
          name: logs
-         path: ./log/
+         path: /tmp/mylogs
