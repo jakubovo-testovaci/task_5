@@ -34,8 +34,8 @@ jobs:
     - name: Build Docker image
       run: |
         echo "🐳 Buildování Docker image..."
-        docker build -t $IMAGE_NAME:latest .
-        docker build -t $IMAGE_NAME:${{ github.sha }} .
+        docker build --pull -t $IMAGE_NAME:latest .
+        docker build --pull -t $IMAGE_NAME:${{ github.sha }} .
 
     - name: Test Docker container and store logs
       run: |
@@ -54,3 +54,59 @@ jobs:
       with:
          name: logs
          path: /tmp/mylogs
+
+  deploy-to-ecr:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v6.1.0
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-central-1    
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0    
+
+    - name: Terraform Init
+      working-directory: ./terraform
+      run: terraform init    
+
+    - name: Terraform Plan
+      working-directory: ./terraform
+      run: terraform plan    
+
+    - name: Terraform Apply
+      working-directory: ./terraform
+      run: terraform apply -auto-approve
+
+    - name: Get ECR repository URL
+      id: ECR_URL
+      working-directory: ./terraform
+      run: |
+        ECR_URL=$(terraform output -raw ecr_repository_url)
+        echo "ECR_URL=$ECR_URL" >> $GITHUB_OUTPUT
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2    
+
+    - name: Build and push Docker image to ECR
+      env:
+        ECR_URL: ${{ steps.ECR_URL.outputs.ECR_URL }}
+      run: |
+        docker build -t $ECR_URL:latest .
+
+        echo "🚀 Pushing images to ECR..."
+        docker push $ECR_URL:latest
+
+        echo "✅ Images pushed successfully!"
+        echo "Repository URL: $ECR_URL"
